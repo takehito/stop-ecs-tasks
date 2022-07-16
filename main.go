@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -50,15 +51,26 @@ func main() {
 		os.Exit(1)
 	}
 	client := ecs.NewFromConfig(cfg)
+
+	var wg sync.WaitGroup
 	for _, v := range esn.ServiceNames {
-		_, err := client.UpdateService(context.Background(), &ecs.UpdateServiceInput{
-			DesiredCount: aws.Int32(0),
-			Cluster:      &esn.ClusterName,
-			Service:      &v,
-		})
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
+		wg.Add(1)
+		go func(cluster string, service string) {
+			defer wg.Done()
+
+			fmt.Printf("start stopping %s\n", service)
+			_, err := client.UpdateService(context.Background(), &ecs.UpdateServiceInput{
+				DesiredCount: aws.Int32(0),
+				Cluster:      &cluster,
+				Service:      &service,
+			})
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return
+			}
+			fmt.Printf("done stopping %s\n", service)
+		}(esn.ClusterName, v)
 	}
+
+	wg.Wait()
 }
